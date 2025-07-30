@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	client := bsdmp.NewClient(1, bsdmp.CompressionGZIP, []byte("FRAME>"), []byte("<FRAME>"))
+	client := bsdmp.NewClient(1, bsdmp.CompressionGZIP, []byte("FRAME>"), []byte("<FRAME"))
 	client.Format([]string{"name", "age", "active"})
 	client.AddFrame([]interface{}{"Alice", 25, true})
 	client.AddFrame([]interface{}{"Bob", 30, false})

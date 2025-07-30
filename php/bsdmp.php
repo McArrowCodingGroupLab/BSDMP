@@ -129,7 +129,7 @@ class BSDMPDataBlock
     public function __construct(
         int $frameCount = 0,
         string $fse = 'FRAME>',
-        string $fee = '<FRAME>',
+        string $fee = '<FRAME',
         array $title = [],
         array $frames = []
     ) {
@@ -299,7 +299,7 @@ class BSDMPClient
         int $version = 1,
         int $compression = BSDMP::COMPRESSION_RAW,
         string $fse = 'FRAME>',
-        string $fee = '<FRAME>'
+        string $fee = '<FRAME'
     ) {
         $this->version = $version;
         $this->compression = $compression;

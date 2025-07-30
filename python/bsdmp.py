@@ -128,7 +128,7 @@ class BSDMPDataBlock:
         self,
         frame_count=0,
         fse=b"FRAME>",
-        fee=b"<FRAME>",
+        fee=b"<FRAME",
         title: list[tuple[str, int]] | None = None,
         frames=None,
     ):
@@ -263,7 +263,7 @@ class BSDMPClient:
         version=1,
         compression=CompressionType.RAW,
         fse=b"FRAME>",
-        fee=b"<FRAME>",
+        fee=b"<FRAME",
     ):
         self.version = version
         self.compression = compression

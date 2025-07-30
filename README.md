@@ -38,7 +38,6 @@ struct BSDMPHeader {
 | 0   | RAW          | Без сжатия |
 | 1   | GZIP         | Сжатие GZIP |
 | 2   | ZLIB         | Сжатие ZLIB |
-| 3   | LZ4          | Не реализовано |
 
 ---
 
