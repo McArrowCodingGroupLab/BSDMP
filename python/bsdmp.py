@@ -274,8 +274,34 @@ class BSDMPClient:
         self.counter = 1
 
     def format(self, fields: list[str]):
-        # Для простоты пока используем STRING, можно расширить по умолчанию
         self.title = [(name, FieldType.STRING) for name in fields]
+
+    def format_with_types(self, field_definitions: list[tuple[str, int]]):
+        """Задает формат полей с указанием типов для каждого поля.
+
+        Args:
+            field_definitions: Список кортежей (имя_поля, тип_поля)
+
+        Пример:
+            format_with_types([
+                ("name", FieldType.STRING),
+                ("age", FieldType.INT),
+                ("is_active", FieldType.BOOL)
+            ])
+        """
+        valid_types = {
+            FieldType.STRING,
+            FieldType.INT,
+            FieldType.FLOAT,
+            FieldType.BOOL,
+            FieldType.JSON,
+        }
+
+        for _, field_type in field_definitions:
+            if field_type not in valid_types:
+                raise ValueError(f"Недопустимый тип поля: {field_type}")
+
+        self.title = field_definitions.copy()
 
     def frame(self, values: list):
         encoded_fields = [FieldType.encode(v, FieldType.detect(v)) for v in values]
