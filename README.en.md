@@ -1,283 +1,280 @@
 ## BSDMP (Binary Self-Describing Messaging Protocol)
 
-BSDMP (Binary Self-Describing Messaging Protocol) — бинарный протокол для эффективной передачи структурированных данных между клиентом и сервером. Протокол использует самоописываемую структуру, позволяющую получателю интерпретировать данные без предварительного знания их формата.
+BSDMP (Binary Self-Describing Messaging Protocol) is a binary protocol designed for efficient transmission of structured data between client and server. The protocol uses a self-describing structure, allowing the recipient to interpret the data without prior knowledge of its format.
 
 ---
 
-Версия: 2.0 `WIP`
+Version: 2.0 `WIP`  
 
-`На текущий момент идет проработка и стабилизация формата`
+`The format is currently being refined and stabilized`  
 
 ---
 
-## Общая структура сообщения
+## General Message Structure  
 
 ```plaintext
-[BSDMPHeader]
-[Compressed BSDMPDataBlock]
-```
+[BSDMPHeader]  
+[Compressed BSDMPDataBlock]  
+```  
 
----
+---  
 
-## Заголовок (BSDMPHeader)
-
-```c
-struct BSDMPHeader {
-    uint32_t version;         // Версия протокола (1 байт)
-    uint32_t compression;     // Метод сжатия
-    uint32_t data_block_size; // Размер сжатого блока данных в байтах
-}
-```
-
-Размер заголовка: **12 байт**
-
----
-
-## Методы сжатия (CompressionType)
-
-| Код | Метод сжатия | Описание |
-| --- | ------------ | -------- |
-| 0   | RAW          | Без сжатия |
-| 1   | GZIP         | Сжатие GZIP |
-| 2   | ZLIB         | Сжатие ZLIB |
-
----
-
-## Блок данных (BSDMPDataBlock)
+## Header (BSDMPHeader)  
 
 ```c
-struct BSDMPDataBlock {
-    uint32_t frame_count;     // Количество кадров
-    
-    uint32_t fse_len;         // Длина маркера начала кадра
-    byte[fse_len] fse;        // Маркер начала кадра (FSE)
-    
-    uint32_t fee_len;         // Длина маркера конца кадра
-    byte[fee_len] fee;        // Маркер конца кадра (FEE)
-    
-    uint32_t title_len;       // Длина заголовка
-    byte[title_len] title;    // Заголовок с описанием полей
-    
-    BSDMPFrame[frame_count] frames; // Массив кадров
-}
-```
+struct BSDMPHeader {  
+    uint32_t version;         // Protocol version (1 byte)  
+    uint32_t compression;     // Compression method  
+    uint32_t data_block_size; // Size of the compressed data block in bytes  
+}  
+```  
 
----
+Header size: **12 bytes**  
 
-## Заголовок полей (Title)
+---  
 
-```c
-title_block = [
-    uint16_t name_len;    // Длина имени поля
-    byte[name_len] name;  // Имя поля (UTF-8)
-    uint8_t type_code;    // Тип поля
-] * field_count
-```
+## Compression Methods (CompressionType)  
 
----
+| Code | Compression Method | Description |  
+| ---- | ------------------ | ----------- |  
+| 0    | RAW                | No compression |  
+| 1    | GZIP               | GZIP compression |  
+| 2    | ZLIB               | ZLIB compression |  
 
-## Типы данных (FieldType)
+---  
 
-| Код | Тип данных | Формат |
-| --- | ---------- | ------- |
-| 0x01 | STRING | UTF-8 строка |
-| 0x02 | INT | int64_t (8 байт, little-endian) |
-| 0x03 | FLOAT | double (8 байт, IEEE754) |
-| 0x04 | BOOL | 1 байт (0x00/0x01) |
-| 0x05 | JSON | UTF-8 строка JSON |
-
----
-
-## Структура кадра (BSDMPFrame)
+## Data Block (BSDMPDataBlock)  
 
 ```c
-struct BSDMPFrame {
-    byte[] fse;         // Маркер начала кадра
-    uint32_t frame_num; // Номер кадра
-    uint32_t length;    // Длина payload
+struct BSDMPDataBlock {  
+    uint32_t frame_count;     // Number of frames  
     
-    [
-        uint16_t field_len;
-        byte[field_len] data;
-    ] * fields;
+    uint32_t fse_len;         // Frame start marker length  
+    byte[fse_len] fse;        // Frame start marker (FSE)  
     
-    byte[] fee;         // Маркер конца кадра
-}
+    uint32_t fee_len;         // Frame end marker length  
+    byte[fee_len] fee;        // Frame end marker (FEE)  
+    
+    uint32_t title_len;       // Title (metadata) length  
+    byte[title_len] title;    // Title containing field descriptions  
+    
+    BSDMPFrame[frame_count] frames; // Array of frames  
+}  
+```  
+
+---  
+
+## Field Header (Title)  
+
+```c
+title_block = [  
+    uint16_t name_len;    // Field name length  
+    byte[name_len] name;  // Field name (UTF-8)  
+    uint8_t type_code;    // Field type  
+] * field_count  
+```  
+
+---  
+
+## Data Types (FieldType)  
+
+| Code | Data Type | Format |  
+| ---- | --------- | ------ |  
+| 0x01 | STRING    | UTF-8 string |  
+| 0x02 | INT       | int64_t (8 bytes, little-endian) |  
+| 0x03 | FLOAT     | double (8 bytes, IEEE 754) |  
+| 0x04 | BOOL      | 1 byte (0x00/0x01) |  
+| 0x05 | JSON      | UTF-8 JSON string |  
+
+---  
+
+## Frame Structure (BSDMPFrame)  
+
+```c
+struct BSDMPFrame {  
+    byte[] fse;          // Frame start marker  
+    uint32_t frame_num;  // Frame number  
+    uint32_t length;     // Payload length  
+    
+    [  
+        uint16_t field_len;  
+        byte[field_len] data;  
+    ] * fields;  
+    
+    byte[] fee;          // Frame end marker  
+}  
+```  
+
+---  
+
+## Encoding Process  
+
+1. Constructing the header  
+2. Preparing the data block:  
+   - Filling in metadata  
+   - Encoding the field header  
+   - Preparing frames  
+3. Compressing the data block  
+4. Forming the final message  
+
+---  
+
+## Decoding Process  
+
+1. Verifying and reading the header  
+2. Decompressing the data block  
+3. Parsing the field header  
+4. Processing frames:  
+   - Verifying markers  
+   - Decoding fields  
+   - Checking integrity  
+
+---  
+
+## Implementation Requirements  
+
+* All numeric values in **little-endian** format  
+* Strict adherence to field sizes  
+* Proper error handling  
+* Support for all specified data types  
+
+---  
+
+## Limitations  
+
+* Maximum field name length: **65535 bytes**  
+* Maximum field value length: **65535 bytes**  
+* Protocol version: **2** (current)  
+* Fixed header size: **12 bytes**  
+* No CRC checksum  
+
+## Future Plans  
+* Introducing a magic block (version 3)  
+* Increasing field value length by defining it per data type  
+* Extending the Title format to store field length pointer size (default: uint8)  
+* Updating and expanding library support: Python, GO, PHP, JavaScript (NodeJS, Deno, Bun), TypeScript (NodeJS, Deno, Bun), C#, C++, C, Rust  
+
+---  
+
+## Message Structure  
+```
+┌────────────────────────────────────────────────────────────────────────────────┐  
+│                                 BSDMP Message                                  │  
+├─────────────────┬──────────────────────────────────────────────────────────────┤  
+│     Header      │                         Data Block                           │  
+├─────────┬───────┼───────────────┬───────────────────────────┬──────────────────┤  
+│ Version │ Comp  │  Data Size    │        Raw Data Block     │   Frame 1...N    │  
+│ (4B)    │ (4B)  │     (4B)      │  (compressed if enabled)  │                  │  
+└─────────┴───────┴───────────────┴───────────────────────────┴──────────────────┘  
+                                        ▲  
+                                        │  
+                                  ┌─────┘  
+                                  │  
+           Data Block Detail      │  
+       ┌──────────────────────────▼────────────────────────────────────┐  
+       │                                                               │  
+       ├──────────┬──────────┬──────────┬──────────────┬───────────────┤  
+       │ Frame    │  FSE     │   FEE    │   Title      │   Frames      │  
+       │ Count    │ (Marker) │ (Marker) │ (Metadata)   │               │  
+       │  (4B)    │          │          │              │               │  
+       └──────────┴──────────┴──────────┴──────────────┴───────────────┘  
+                                      ▲                ▲  
+                                      │                │  
+                      ┌───────────────┘                │  
+                      │                                │  
+           ┌──────────▼──────────┐         ┌───────────▼─────────────┐  
+           │  Field Descriptors  │         │       Frames            │  
+           ├─────────┬───────────┤         ├─────────┬───────────────┤  
+           │ Name    │ Type      │         │ Frame   │  Field Data   │  
+           │ (var)   │ (1B)      │         │ Number  │               │  
+           └─────────┴───────────┘         └─────────┴───────────────┘  
+                                                          ▲  
+                                                          │  
+                                              ┌───────────┴───────────┐  
+                                              │   Field Structure     │  
+                                              ├───────────┬───────────┤  
+                                              │ Length    │ Value     │  
+                                              │ (2B)      │ (var)     │  
+                                              └───────────┴───────────┘  
+
+Legend:  
+- B = Bytes  
+- var = Variable length  
+- FSE = Frame Start Endmarker (e.g., "FRAME>")  
+- FEE = Frame End Endmarker (e.g., "<FRAME>")  
 ```
 
----
-
-## Процесс кодирования
-
-1. Формирование заголовка
-2. Подготовка блока данных:
-   * Заполнение метаданных
-   * Кодирование заголовка полей
-   * Подготовка кадров
-3. Сжатие блока данных
-4. Формирование итогового сообщения
-
----
-
-## Процесс декодирования
-
-1. Проверка и чтение заголовка
-2. Распаковка блока данных
-3. Парсинг заголовка полей
-4. Обработка кадров:
-   * Проверка маркеров
-   * Декодирование полей
-   * Проверка целостности
-
----
-
-## Требования к реализации
-
-* Все числовые значения в формате **little-endian**
-* Строгое соблюдение размеров полей
-* Корректная обработка ошибок
-* Поддержка всех указанных типов данных
-
----
-
-## Ограничения
-
-* Максимальная длина имени поля: **65535 байт**
-* Максимальная длина значения поля: **65535 байт**
-* Версия протокола: **2** (текущая)
-* Размер заголовка фиксирован: **12 байт**
-* Отсутствие CRC
-
-## Планы развития
-* Внедрение magic-блока (версия 3)
-* Увеличение длины значения поля - путем определения по типу данных
-* Расширение формата Title - для хранения длины указателя длины значения поля (по умолчанию uint8)
-* Расиширение примеров и актуализация библиотек: Python, GO, PHP, JavaScript (NodeJS, Deno, Bun), TypeScript (NodeJS, Deno, Bun), C#, C++, C, Rust
-
----
-
-## Структура сообщения
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                                 BSDMP Message                                  │
-├─────────────────┬──────────────────────────────────────────────────────────────┤
-│     Header      │                         Data Block                           │
-├─────────┬───────┼───────────────┬───────────────────────────┬──────────────────┤
-│ Version │ Comp  │  Data Size    │        Raw Data Block     │   Frame 1...N    │
-│ (4B)    │ (4B)  │     (4B)      │  (compressed if enabled)  │                  │
-└─────────┴───────┴───────────────┴───────────────────────────┴──────────────────┘
-                                        ▲
-                                        │
-                                  ┌─────┘
-                                  │
-           Data Block Detail      │
-       ┌──────────────────────────▼────────────────────────────────────┐
-       │                                                               │
-       ├──────────┬──────────┬──────────┬──────────────┬───────────────┤
-       │ Frame    │  FSE     │   FEE    │   Title      │   Frames      │
-       │ Count    │ (Marker) │ (Marker) │ (Metadata)   │               │
-       │  (4B)    │          │          │              │               │
-       └──────────┴──────────┴──────────┴──────────────┴───────────────┘
-                                      ▲                ▲
-                                      │                │
-                      ┌───────────────┘                │
-                      │                                │
-           ┌──────────▼──────────┐         ┌───────────▼─────────────┐
-           │  Field Descriptors  │         │       Frames            │
-           ├─────────┬───────────┤         ├─────────┬───────────────┤
-           │ Name    │ Type      │         │ Frame   │  Field Data   │
-           │ (var)   │ (1B)      │         │ Number  │               │
-           └─────────┴───────────┘         └─────────┴───────────────┘
-                                                          ▲
-                                                          │
-                                              ┌───────────┴───────────┐
-                                              │   Field Structure     │
-                                              ├───────────┬───────────┤
-                                              │ Length    │ Value     │
-                                              │ (2B)      │ (var)     │
-                                              └───────────┴───────────┘
+[BSDMPHeader][Compressed BSDMPDataBlock]  
+         │  
+         ├─ BSDMPHeader:  
+         │   ┌─────────────────────────────┐  
+         │   │ [magic]                     │ 4 bytes: signature "BSDM"  
+         │   │ [version]                   │ uint8: protocol version (e.g., 1)  
+         │   │ [compression_method]        │ uint8: compression method (0 = none, 1 = zlib, 2 = lzma, 3 = brotli)  
+         │   │ [original_data_size]        │ uint32: uncompressed block size  
+         │   └─────────────────────────────┘  
+         ↓  
+ ┌────────────────────────────────────────────────────────────┐  
+ │ BSDMPDataBlock (after decompression)                      │  
+ │                                                            │  
+ │ [frame_count]                                              │ uint32  
+ │     Number of frames (entries) to follow.                  │  
+ │                                                            │  
+ │ [fse_len][frame_start_marker]                              │ uint32 + bytes[fse_len]  
+ │     Frame start marker. Used for integrity checks or sync. │  
+ │                                                            │  
+ │ [fee_len][frame_end_marker]                                │ uint32 + bytes[fee_len]  
+ │     Frame end marker. Similarly, used for validation.      │  
+ │                                                            │  
+ │ [title_block_len][title_block]                             │ uint32 + bytes[title_block_len]  
+ │     Field structure description (names and types).         │  
+ │     title_block =                                          │  
+ │       ┌─────────────────────────────────────┐              │  
+ │       │ [name_len]                          │ uint16       │  
+ │       │ [name]                              │ bytes[name_len]  
+ │       │ [type]                              │ uint8        │  
+ │       └─────────────────────────────────────┘ × N (columns)│  
+ │         type:                                              │  
+ │           0 = string                                       │  
+ │           1 = int32                                        │  
+ │           2 = int64                                        │  
+ │           3 = float32                                      │  
+ │           4 = float64                                      │  
+ │           5 = boolean                                      │  
+ │           6 = binary/blob                                  │  
+ │           ... (extensible)                                 │  
+ │                                                            │  
+ │ [frames] × frame_count                                     │  
+ │  ┌──────────────────────────────────────────────────────┐  │  
+ │  │ [FSE]                                                │  │ bytes[fse_len]  
+ │  │     Frame start marker repetition                    │  │  
+ │  │                                                      │  │  
+ │  │ [frame_num]                                          │  │ uint32  
+ │  │     Frame sequence number (0-based index)            │  │  
+ │  │                                                      │  │  
+ │  │ [full_len]                                           │  │ uint32  
+ │  │     Total frame length in bytes (from FSE to FEE).   │  │  
+ │  │                                                      │  │  
+ │  │ [field_len][field_data] × N (in column order)        │  │  
+ │  │     Sequential field data.                           │  │  
+ │  │     field_len: uint16 — content length.              │  │  
+ │  │     field_data: bytes[field_len]                     │  │  
+ │  │                                                      │  │  
+ │  │ [FEE]                                                │  │ bytes[fee_len]  
+ │  │     Frame end marker repetition                      │  │  
+ │  └──────────────────────────────────────────────────────┘  │  
+ └────────────────────────────────────────────────────────────┘  
+```  
 
-Legend:
-- B = Bytes
-- var = Variable length
-- FSE = Frame Start Endmarker (e.g. "FRAME>")
-- FEE = Frame End Endmarker (e.g. "<FRAME>")
+## Binary Data Example
 ```
-
-```
-[BSDMPHeader][Compressed BSDMPDataBlock]
-         │
-         ├─ BSDMPHeader:
-         │   ┌─────────────────────────────┐
-         │   │ [magic]                     │ 4 bytes: сигнатура "BSDM"
-         │   │ [version]                   │ uint8: версия протокола (например, 1)
-         │   │ [compression_method]        │ uint8: метод сжатия (0 = none, 1 = zlib, 2 = lzma, 3 = brotli)
-         │   │ [original_data_size]        │ uint32: размер распакованного блока
-         │   └─────────────────────────────┘
-         ↓
- ┌────────────────────────────────────────────────────────────┐
- │ BSDMPDataBlock (после распаковки)                          │
- │                                                            │
- │ [frame_count]                                              │ uint32
- │     Количество кадров (записей), следующих далее.          │
- │                                                            │
- │ [fse_len][frame_start_marker]                              │ uint32 + bytes[fse_len]
- │     Начальный маркер кадра. Может использоваться для       │
- │     проверки целостности или синхронизации.                │
- │                                                            │
- │ [fee_len][frame_end_marker]                                │ uint32 + bytes[fee_len]
- │     Завершающий маркер кадра. Аналогично, служит для       │
- │     проверки целостности или завершения.                   │
- │                                                            │
- │ [title_block_len][title_block]                             │ uint32 + bytes[title_block_len]
- │     Описание структуры заголовков (названия и типы полей). │
- │     title_block =                                          │
- │       ┌─────────────────────────────────────┐              │
- │       │ [name_len]                          │ uint16       │
- │       │ [name]                              │ bytes[name_len]
- │       │ [type]                              │ uint8        │
- │       └─────────────────────────────────────┘ × N (columns)│
- │         type:                                              │
- │           0 = string                                       │
- │           1 = int32                                        │
- │           2 = int64                                        │
- │           3 = float32                                      │
- │           4 = float64                                      │
- │           5 = boolean                                      │
- │           6 = binary/blob                                  │
- │           ... (расширяемо)                                 │
- │                                                            │
- │ [frames] × frame_count                                     │
- │  ┌──────────────────────────────────────────────────────┐  │
- │  │ [FSE]                                                │  │ bytes[fse_len]
- │  │     Повторение frame_start_marker                    │  │
- │  │                                                      │  │
- │  │ [frame_num]                                          │  │ uint32
- │  │     Номер кадра по порядку (0-based индекс)          │  │
- │  │                                                      │  │
- │  │ [full_len]                                           │  │ uint32
- │  │     Общая длина кадра в байтах (от FSE до FEE).      │  │
- │  │                                                      │  │
- │  │ [field_len][field_data] × N (в порядке колонок)      │  │
- │  │     Последовательно идут данные по каждому полю.     │  │
- │  │     field_len: uint16 — длина содержимого.           │  │
- │  │     field_data: bytes[field_len]                     │  │
- │  │                                                      │  │
- │  │ [FEE]                                                │  │ bytes[fee_len]
- │  │     Повторение frame_end_marker                      │  │
- │  └──────────────────────────────────────────────────────┘  │
- └────────────────────────────────────────────────────────────┘
-                                      
-```
-
-## Пример бинарных данных
-```
-▼ Заголовок (12 байт)
+▼ Header (12 bytes)
 00000000  01000000                              |....            |  Version = 1
 00000004  02000000                              |....            |  Compression = ZLIB (2)
-00000008  df040000                              |....            |  DataSize = 1247 байт
+00000008  df040000                              |....            |  DataSize = 1247 byte
 
-▼ Сжатый блок данных (1247 байт)
+▼ Compressed Data Block (1247 bytes)
 0000000c  789c6d96 5b6f1b45 14c78f6f c9c6ce45   |x.m.[o.E...o...E|  
 0000001c  5c44a185 76491112 a80bbb76 dc245655   |\D..vI.....v.$VU|  
 0000002c  39cd8524 c44d1a3b 6a0542d5 643dd883   |9..$.M.;j.B.d=..|  
@@ -357,7 +354,7 @@ Legend:
 000004cc  efe15234 9f4f0274 e1d856db 4329d192   |..R4.O.t..V.C)..|  
 000004dc  f45ef275 0017c858 b9ff0365 9a2142     |.^.u...X...e.!B |  
 
-▼ Распакованный Data Block (2504 байт)
+▼ Unpacked Data Block (2504 byte)
 00000000  0f000000 03000000 3e403e03 0000003c   |........>@>....<|  
 00000010  403c7000 00000200 69640204 006e616d   |@<p.....id...nam|  
 00000020  65010300 61676502 0500656d 61696c01   |e...age...email.|  
@@ -516,7 +513,7 @@ Legend:
 000009b0  3032332d 30342d31 32543133 3a34353a   |023-04-12T13:45:|  
 000009c0  30300100 013c403c                     |00...<@<        |  
 
-▼ Заголовок блока
+▼ Header block
 00000000  0f000000                              |....            |  FrameCount = 15
 00000004  03000000                              |....            |  FSE_Length = 3
 00000008  3e403e                                |>@>             |  FSE = ">@>"
@@ -524,7 +521,7 @@ Legend:
 0000000f  3c403c                                |<@<             |  FEE = "<@<"
 00000012  70000000                              |p...            |  TitleLength = 112
 
-▼ Title (112 байт)
+▼ Title (112 byte)
 00000016  0200                                  |..              |  NameLen = 2
 00000018  6964                                  |id              |  Name = "id"
 0000001a  02                                    |.               |  Type = INT (0x02)
@@ -565,7 +562,7 @@ Legend:
 ▼ Frame 1
 00000086  3e403e                                |>@>             |  FSE = ">@>"
 00000089  01000000                              |....            |  FrameNum = 1
-0000008d  92000000                              |....            |  DataLen = 146 байт
+0000008d  92000000                              |....            |  DataLen = 146 byte
 00000091  0800                                  |..              |  FieldLen = 8
 00000093  01000000 00000000                     |........        |  Field = 1
 0000009b  0d00                                  |..              |  FieldLen = 13
@@ -595,7 +592,7 @@ Legend:
 ▼ Frame 2
 00000123  3e403e                                |>@>             |  FSE = ">@>"
 00000126  02000000                              |....            |  FrameNum = 2
-0000012a  8b000000                              |....            |  DataLen = 139 байт
+0000012a  8b000000                              |....            |  DataLen = 139 byte
 0000012e  0800                                  |..              |  FieldLen = 8
 00000130  02000000 00000000                     |........        |  Field = 2
 00000138  0900                                  |..              |  FieldLen = 9
@@ -625,7 +622,7 @@ Legend:
 ▼ Frame 3
 000001b9  3e403e                                |>@>             |  FSE = ">@>"
 000001bc  03000000                              |....            |  FrameNum = 3
-000001c0  92000000                              |....            |  DataLen = 146 байт
+000001c0  92000000                              |....            |  DataLen = 146 byte
 000001c4  0800                                  |..              |  FieldLen = 8
 000001c6  03000000 00000000                     |........        |  Field = 3
 000001ce  0e00                                  |..              |  FieldLen = 14
@@ -655,7 +652,7 @@ Legend:
 ▼ Frame 4
 00000256  3e403e                                |>@>             |  FSE = ">@>"
 00000259  04000000                              |....            |  FrameNum = 4
-0000025d  91000000                              |....            |  DataLen = 145 байт
+0000025d  91000000                              |....            |  DataLen = 145 byte
 00000261  0800                                  |..              |  FieldLen = 8
 00000263  04000000 00000000                     |........        |  Field = 4
 0000026b  0b00                                  |..              |  FieldLen = 11
@@ -685,7 +682,7 @@ Legend:
 ▼ Frame 5
 000002f2  3e403e                                |>@>             |  FSE = ">@>"
 000002f5  05000000                              |....            |  FrameNum = 5
-000002f9  8a000000                              |....            |  DataLen = 138 байт
+000002f9  8a000000                              |....            |  DataLen = 138 byte
 000002fd  0800                                  |..              |  FieldLen = 8
 000002ff  05000000 00000000                     |........        |  Field = 5
 00000307  0900                                  |..              |  FieldLen = 9
@@ -715,7 +712,7 @@ Legend:
 ▼ Frame 6
 00000387  3e403e                                |>@>             |  FSE = ">@>"
 0000038a  06000000                              |....            |  FrameNum = 6
-0000038e  96000000                              |....            |  DataLen = 150 байт
+0000038e  96000000                              |....            |  DataLen = 150 byte
 00000392  0800                                  |..              |  FieldLen = 8
 00000394  06000000 00000000                     |........        |  Field = 6
 0000039c  0c00                                  |..              |  FieldLen = 12
@@ -745,7 +742,7 @@ Legend:
 ▼ Frame 7
 00000428  3e403e                                |>@>             |  FSE = ">@>"
 0000042b  07000000                              |....            |  FrameNum = 7
-0000042f  90000000                              |....            |  DataLen = 144 байт
+0000042f  90000000                              |....            |  DataLen = 144 byte
 00000433  0800                                  |..              |  FieldLen = 8
 00000435  07000000 00000000                     |........        |  Field = 7
 0000043d  0c00                                  |..              |  FieldLen = 12
@@ -775,7 +772,7 @@ Legend:
 ▼ Frame 8
 000004c3  3e403e                                |>@>             |  FSE = ">@>"
 000004c6  08000000                              |....            |  FrameNum = 8
-000004ca  97000000                              |....            |  DataLen = 151 байт
+000004ca  97000000                              |....            |  DataLen = 151 byte
 000004ce  0800                                  |..              |  FieldLen = 8
 000004d0  08000000 00000000                     |........        |  Field = 8
 000004d8  0b00                                  |..              |  FieldLen = 11
@@ -805,7 +802,7 @@ Legend:
 ▼ Frame 9
 00000565  3e403e                                |>@>             |  FSE = ">@>"
 00000568  09000000                              |....            |  FrameNum = 9
-0000056c  8e000000                              |....            |  DataLen = 142 байт
+0000056c  8e000000                              |....            |  DataLen = 142 byte
 00000570  0800                                  |..              |  FieldLen = 8
 00000572  09000000 00000000                     |........        |  Field = 9
 0000057a  0a00                                  |..              |  FieldLen = 10
@@ -835,7 +832,7 @@ Legend:
 ▼ Frame 10
 000005fe  3e403e                                |>@>             |  FSE = ">@>"
 00000601  0a000000                              |....            |  FrameNum = 10
-00000605  8f000000                              |....            |  DataLen = 143 байт
+00000605  8f000000                              |....            |  DataLen = 143 byte
 00000609  0800                                  |..              |  FieldLen = 8
 0000060b  0a000000 00000000                     |........        |  Field = 10
 00000613  0d00                                  |..              |  FieldLen = 13
@@ -865,7 +862,7 @@ Legend:
 ▼ Frame 11
 00000698  3e403e                                |>@>             |  FSE = ">@>"
 0000069b  0b000000                              |....            |  FrameNum = 11
-0000069f  9c000000                              |....            |  DataLen = 156 байт
+0000069f  9c000000                              |....            |  DataLen = 156 byte
 000006a3  0800                                  |..              |  FieldLen = 8
 000006a5  0b000000 00000000                     |........        |  Field = 11
 000006ad  0c00                                  |..              |  FieldLen = 12
@@ -895,7 +892,7 @@ Legend:
 ▼ Frame 12
 0000073f  3e403e                                |>@>             |  FSE = ">@>"
 00000742  0c000000                              |....            |  FrameNum = 12
-00000746  8f000000                              |....            |  DataLen = 143 байт
+00000746  8f000000                              |....            |  DataLen = 143 byte
 0000074a  0800                                  |..              |  FieldLen = 8
 0000074c  0c000000 00000000                     |........        |  Field = 12
 00000754  0b00                                  |..              |  FieldLen = 11
@@ -925,7 +922,7 @@ Legend:
 ▼ Frame 13
 000007d9  3e403e                                |>@>             |  FSE = ">@>"
 000007dc  0d000000                              |....            |  FrameNum = 13
-000007e0  95000000                              |....            |  DataLen = 149 байт
+000007e0  95000000                              |....            |  DataLen = 149 byte
 000007e4  0800                                  |..              |  FieldLen = 8
 000007e6  0d000000 00000000                     |........        |  Field = 13
 000007ee  0900                                  |..              |  FieldLen = 9
@@ -955,7 +952,7 @@ Legend:
 ▼ Frame 14
 00000879  3e403e                                |>@>             |  FSE = ">@>"
 0000087c  0e000000                              |....            |  FrameNum = 14
-00000880  99000000                              |....            |  DataLen = 153 байт
+00000880  99000000                              |....            |  DataLen = 153 byte
 00000884  0800                                  |..              |  FieldLen = 8
 00000886  0e000000 00000000                     |........        |  Field = 14
 0000088e  0b00                                  |..              |  FieldLen = 11
@@ -985,7 +982,7 @@ Legend:
 ▼ Frame 15
 0000091d  3e403e                                |>@>             |  FSE = ">@>"
 00000920  0f000000                              |....            |  FrameNum = 15
-00000924  a0000000                              |....            |  DataLen = 160 байт
+00000924  a0000000                              |....            |  DataLen = 160 byte
 00000928  0800                                  |..              |  FieldLen = 8
 0000092a  0f000000 00000000                     |........        |  Field = 15
 00000932  0d00                                  |..              |  FieldLen = 13
