@@ -1,346 +1,557 @@
-import struct
-import json
-import struct
-import json
+import bz2
 import gzip
+import json
+import lzma
+import struct
 import zlib
+from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import IntEnum
 
 
-class CompressionType:
-    RAW = 0
-    GZIP = 1
-    ZLIB = 2
+class BSDMPFieldType(IntEnum):
+    STRING = 1
+    INT = 2
+    FLOAT = 3
+    BOOL = 4
+    JSON = 5
+    BINARY = 6
+
+
+class BSDMPFieldSize(IntEnum):
+    B255 = 1
+    K64 = 2
+    G4 = 4
+
+
+class BSDMPCompressor:
+    _compressors = {}
+
+    @classmethod
+    def register(cls, method: int, compress_fn, decompress_fn):
+        cls._compressors[method] = (compress_fn, decompress_fn)
+
+    @classmethod
+    def compress(cls, method: int, data: bytes) -> bytes:
+        compress_fn = cls._compressors.get(method, (lambda x: x,))[0]
+        return compress_fn(data)
+
+    @classmethod
+    def decompress(cls, method: int, data: bytes) -> bytes:
+        decompress_fn = cls._compressors.get(method, (None, lambda x: x))[1]
+        return decompress_fn(data)
+
+
+class BSDMPCRCDriver:
+    @staticmethod
+    def calculate(data: bytes) -> int:
+        """Рассчитывает CRC (по умолчанию zlib.crc32)."""
+        # print(data.hex(), zlib.crc32(data))
+        return zlib.crc32(data) & 0xFFFFFFFF
 
     @staticmethod
-    def compress(data: bytes, ctype: int) -> bytes:
-        if ctype == CompressionType.RAW:
-            return data
-        elif ctype == CompressionType.GZIP:
-            return gzip.compress(data)
-        elif ctype == CompressionType.ZLIB:
-            return zlib.compress(data)
-        else:
-            raise BSDMPError(f"Unknown compression type {ctype}")
-
-    @staticmethod
-    def decompress(data: bytes, ctype: int) -> bytes:
-        if ctype == CompressionType.RAW:
-            return data
-        elif ctype == CompressionType.GZIP:
-            return gzip.decompress(data)
-        elif ctype == CompressionType.ZLIB:
-            return zlib.decompress(data)
-        else:
-            raise BSDMPError(f"Unknown compression type {ctype}")
+    def check(data: bytes, expected_crc: int) -> bool:
+        # print(expected_crc, BSDMPCRCDriver.calculate(data))
+        """Проверяет совпадение CRC."""
+        return BSDMPCRCDriver.calculate(data) == expected_crc
 
 
-class BSDMPError(Exception):
-    pass
+class BSDMPTitleEntry:
+    def __init__(self, name: str, type_code: int, type_len: int):
+        if type_code not in BSDMPFieldType.__members__.values():
+            raise ValueError(f"Invalid type_code: {type_code}")
+        if type_len not in BSDMPFieldSize.__members__.values():
+            raise ValueError(f"Invalid type_len: {type_len}")
+        self.name = name
+        self.type_code = type_code
+        self.type_len = type_len
 
-
-class FieldType:
-    STRING = 0x01
-    INT = 0x02
-    FLOAT = 0x03
-    BOOL = 0x04
-    JSON = 0x05
-
-    @staticmethod
-    def detect(value):
-        if isinstance(value, bool):
-            return FieldType.BOOL
-        elif isinstance(value, int):
-            return FieldType.INT
-        elif isinstance(value, float):
-            return FieldType.FLOAT
-        elif isinstance(value, (dict, list)):
-            return FieldType.JSON
-        return FieldType.STRING
-
-    @staticmethod
-    def encode(value, ftype):
-        if ftype == FieldType.BOOL:
-            return b"\x01" if value else b"\x00"
-        elif ftype == FieldType.INT:
-            return value.to_bytes(8, byteorder="little", signed=True)
-        elif ftype == FieldType.FLOAT:
-            return struct.pack("<d", value)
-        elif ftype == FieldType.JSON:
-            return json.dumps(value).encode()
-        elif ftype == FieldType.STRING:
-            return value.encode("utf-8") if isinstance(value, str) else value
-        return value
-
-    @staticmethod
-    def decode(data, ftype):
-        try:
-            if ftype == FieldType.BOOL:
-                return data != b"\x00"
-            elif ftype == FieldType.INT:
-                return int.from_bytes(data, byteorder="little", signed=True)
-            elif ftype == FieldType.FLOAT:
-                return struct.unpack("<d", data)[0]
-            elif ftype == FieldType.JSON:
-                return json.loads(data)
-            elif ftype == FieldType.STRING:
-                return data.decode("utf-8")
-        except Exception:
-            return data
-        return data
-
-
-class BSDMPHeader:
-    FORMAT = "<I I I"  # Version, Compression, DataBlockSize
-
-    def __init__(self, version=1, compression=0, data_block=b""):
-        self.version = version
-        self.compression = compression
-        self._raw_data_block = data_block
-
-    def encode(self) -> bytes:
-        compressed_data = CompressionType.compress(
-            self._raw_data_block, self.compression
-        )
+    def to_bytes(self) -> bytes:
+        name_bytes = self.name.encode("utf-8")
         return (
-            struct.pack(
-                self.FORMAT,
-                self.version,
-                self.compression,
-                len(compressed_data),
-            )
-            + compressed_data
+            struct.pack("<H", len(name_bytes))
+            + name_bytes
+            + struct.pack("BB", self.type_code, self.type_len)
         )
 
     @classmethod
-    def decode(cls, data: bytes):
-        hdr_size = struct.calcsize(cls.FORMAT)
-        if len(data) < hdr_size:
-            raise BSDMPError("Header too short")
+    def from_bytes(cls, data: bytes, offset: int) -> Tuple["BSDMPTitleEntry", int]:
+        if offset + 2 > len(data):
+            raise ValueError("Insufficient data for name_len")
+        name_len = struct.unpack_from("<H", data, offset)[0]
+        offset += 2
+        if offset + name_len > len(data):
+            raise ValueError("Insufficient data for name")
+        name = data[offset : offset + name_len].decode("utf-8")
+        offset += name_len
+        if offset + 2 > len(data):
+            raise ValueError("Insufficient data for type_code and type_len")
+        type_code, type_len = struct.unpack_from("BB", data, offset)
+        offset += 2
+        return cls(name, type_code, type_len), offset
 
-        version, compression, db_size = struct.unpack(cls.FORMAT, data[:hdr_size])
-        compressed_block = data[hdr_size : hdr_size + db_size]
-        raw_block = CompressionType.decompress(compressed_block, compression)
-        return cls(version, compression, raw_block), hdr_size + db_size
+
+class BSDMPField:
+    def __init__(self, title_index: int, data: bytes, type_len: int):
+        self.title_index = title_index
+        self.data = data
+        self.type_len = type_len  # Кол-во байт для длины поля
+
+    def to_bytes(self) -> bytes:
+        length = len(self.data)
+        if self.type_len == BSDMPFieldSize.B255 and length > 255:
+            raise ValueError("Field length exceeds 255 bytes for type_len=BSDMPFieldSize.B255")
+        elif self.type_len == BSDMPFieldSize.K64 and length > 65535:
+            raise ValueError("Field length exceeds 65535 bytes for type_len=BSDMPFieldSize.K64")
+        elif self.type_len == BSDMPFieldSize.G4 and length > 0xFFFFFFFF:
+            raise ValueError("Field length exceeds 4GB for type_len=BSDMPFieldSize.G4")
+        if self.type_len == 1:
+            length_bytes = struct.pack("<B", length)
+        elif self.type_len == 2:
+            length_bytes = struct.pack("<H", length)
+        elif self.type_len == 4:
+            length_bytes = struct.pack("<I", length)
+        else:
+            raise ValueError(f"Unsupported type_len {self.type_len}")
+        return struct.pack("<B", self.title_index) + length_bytes + self.data
+
+    @classmethod
+    def from_bytes(
+        cls, data: bytes, offset: int, type_len: int
+    ) -> Tuple["BSDMPField", int]:
+        title_index = data[offset]
+        offset += 1
+        if type_len == 1:
+            field_len = struct.unpack_from("<B", data, offset)[0]
+        elif type_len == 2:
+            field_len = struct.unpack_from("<H", data, offset)[0]
+        elif type_len == 4:
+            field_len = struct.unpack_from("<I", data, offset)[0]
+        else:
+            raise ValueError(f"Unsupported type_len {type_len}")
+        offset += type_len
+        field_data = data[offset : offset + field_len]
+        offset += field_len
+        return cls(title_index, field_data, type_len), offset
+
+
+class BSDMPFrame:
+    def __init__(
+        self, fse: bytes, frame_num: int, fields: List[BSDMPField], fee: bytes
+    ):
+        self.fse = fse
+        self.frame_num = frame_num
+        self.fields = fields
+        self.fee = fee
+
+    def to_bytes(self) -> bytes:
+        b = bytearray()
+        b.extend(self.fse)
+        b.extend(struct.pack("<I", self.frame_num))
+        b.extend(struct.pack("<H", len(self.fields)))
+        for field in self.fields:
+            b.extend(field.to_bytes())
+        b.extend(self.fee)
+        return bytes(b)
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes,
+        offset: int,
+        fse: bytes,
+        fee: bytes,
+        title_entries: List[BSDMPTitleEntry],
+    ) -> Tuple["BSDMPFrame", int]:
+        # Проверяем маркер начала
+        if data[offset : offset + len(fse)] != fse:
+            raise ValueError("Frame start marker mismatch")
+        offset += len(fse)
+        frame_num = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        field_count = struct.unpack_from("<H", data, offset)[0]
+        offset += 2
+        fields = []
+        for _ in range(field_count):
+            # Получаем type_len из title_entries по title_index (читаем title_index первым)
+            title_index = data[offset]
+            type_len = title_entries[title_index].type_len
+            field, offset = BSDMPField.from_bytes(data, offset, type_len)
+            fields.append(field)
+        # Проверяем маркер конца
+        if data[offset : offset + len(fee)] != fee:
+            raise ValueError("Frame end marker mismatch")
+        offset += len(fee)
+        return cls(fse, frame_num, fields, fee), offset
 
 
 class BSDMPDataBlock:
     def __init__(
         self,
-        frame_count=0,
-        fse=b"FRAME>",
-        fee=b"<FRAME",
-        title: list[tuple[str, int]] | None = None,
-        frames=None,
+        frame_count: int,
+        fse: bytes,
+        fee: bytes,
+        title_entries: List[BSDMPTitleEntry],
+        frames: List[BSDMPFrame],
     ):
         self.frame_count = frame_count
         self.fse = fse
         self.fee = fee
-        self.title = title or []
-        self.frames = frames or []
+        self.title_entries = title_entries
+        self.frames = frames
 
-    def encode_title(self):
-        data = b""
-        for name, t in self.title:
-            name_b = name.encode("utf-8")
-            data += struct.pack("<H", len(name_b)) + name_b + struct.pack("<B", t)
-        return data
-
-    def encode(self):
-        self.frame_count = len(self.frames)
-        result = struct.pack("<I", self.frame_count)
-        result += struct.pack("<I", len(self.fse)) + self.fse
-        result += struct.pack("<I", len(self.fee)) + self.fee
-        title_data = self.encode_title()
-        result += struct.pack("<I", len(title_data)) + title_data
-        for f in self.frames:
-            result += f.encode(self.fse, self.fee)
-        return result
+    def to_bytes(self) -> bytes:
+        b = bytearray()
+        b.extend(struct.pack("<I", self.frame_count))
+        b.extend(struct.pack("<I", len(self.fse)))
+        b.extend(self.fse)
+        b.extend(struct.pack("<I", len(self.fee)))
+        b.extend(self.fee)
+        # Сериализуем title entries
+        title_bytes = b"".join(te.to_bytes() for te in self.title_entries)
+        b.extend(struct.pack("<I", len(title_bytes)))
+        b.extend(title_bytes)
+        # Сериализуем frames
+        for frame in self.frames:
+            b.extend(frame.to_bytes())
+        return bytes(b)
 
     @classmethod
-    def decode(cls, data: bytes):
-        offset = 0
-        frame_count = struct.unpack("<I", data[offset : offset + 4])[0]
+    def from_bytes(cls, data: bytes, offset: int) -> Tuple["BSDMPDataBlock", int]:
+        if offset + 4 > len(data):
+            raise ValueError("Insufficient data for frame_count")
+        frame_count = struct.unpack_from("<I", data, offset)[0]
         offset += 4
-
-        fse_len = struct.unpack("<I", data[offset : offset + 4])[0]
+        if offset + 4 > len(data):
+            raise ValueError("Insufficient data for fse_len")
+        fse_len = struct.unpack_from("<I", data, offset)[0]
         offset += 4
+        if offset + fse_len > len(data):
+            raise ValueError("Insufficient data for fse")
         fse = data[offset : offset + fse_len]
         offset += fse_len
-
-        fee_len = struct.unpack("<I", data[offset : offset + 4])[0]
+        fee_len = struct.unpack_from("<I", data, offset)[0]
         offset += 4
         fee = data[offset : offset + fee_len]
         offset += fee_len
-
-        title_len = struct.unpack("<I", data[offset : offset + 4])[0]
+        title_len = struct.unpack_from("<I", data, offset)[0]
         offset += 4
-        title_raw = data[offset : offset + title_len]
+        title_data = data[offset : offset + title_len]
         offset += title_len
 
-        title = []
-        tpos = 0
-        while tpos < len(title_raw):
-            nlen = struct.unpack("<H", title_raw[tpos : tpos + 2])[0]
-            tpos += 2
-            name = title_raw[tpos : tpos + nlen].decode("utf-8")
-            tpos += nlen
-            tcode = title_raw[tpos]
-            tpos += 1
-            title.append((name, tcode))
+        # Распарсим title entries
+        title_entries = []
+        title_offset = 0
+        while title_offset < len(title_data):
+            te, title_offset = BSDMPTitleEntry.from_bytes(title_data, title_offset)
+            title_entries.append(te)
 
+        # Распарсим frames
         frames = []
         for _ in range(frame_count):
-            frame, used = BSDMPFrame.decode(data[offset:], fse, fee)
+            frame, offset = BSDMPFrame.from_bytes(data, offset, fse, fee, title_entries)
             frames.append(frame)
-            offset += used
 
-        return cls(frame_count, fse, fee, title, frames)
+        return cls(frame_count, fse, fee, title_entries, frames), offset
 
 
-class BSDMPFrame:
-    def __init__(self, frame_num=1, fields=None):
-        self.frame_num = frame_num
-        self.fields = fields or []
+class BSDMPHeader:
+    def __init__(
+        self,
+        version: int,
+        extension: int,
+        compression: int,
+        data_block_size: int,
+        binary_flags: Optional[bytes] = None,
+    ):
+        self.version = version
+        self.extension = extension
+        self.compression = compression
+        self.reserved1 = 0  # как uint8_t
+        self.binary_flags = bytearray(binary_flags or b"\x00" * 8)
+        self.data_block_size = data_block_size
+        self.reserved2 = b"\x00" * 8
 
-    def encode(self, fse: bytes, fee: bytes) -> bytes:
-        field_data = b""
-        for val in self.fields:
-            val = val if isinstance(val, bytes) else val.encode("utf-8")
-            field_data += struct.pack("<H", len(val)) + val
-
-        full_len = len(field_data) + len(fee)
-
-        return (
-            fse
-            + struct.pack("<I", self.frame_num)
-            + struct.pack("<I", full_len)
-            + field_data
-            + fee
+    def to_bytes(self) -> bytes:
+        return struct.pack(
+            "<BBBB8sI8s",
+            self.version,
+            self.extension,
+            self.compression,
+            self.reserved1,
+            bytes(self.binary_flags),
+            self.data_block_size,
+            self.reserved2,
         )
 
     @classmethod
-    def decode(cls, data: bytes, fse: bytes, fee: bytes):
-        if not data.startswith(fse):
-            raise BSDMPError("Frame start not found")
+    def from_bytes(cls, data: bytes, offset: int = 0) -> Tuple["BSDMPHeader", int]:
+        (
+            version,
+            extension,
+            compression,
+            reserved1,
+            binary_flags,
+            data_block_size,
+            reserved2,
+        ) = struct.unpack_from("<BBBB8sI8s", data, offset)
+        offset += 1 + 1 + 1 + 1 + 8 + 4 + 8  # 24 байта
+        obj = cls(version, extension, compression, data_block_size, binary_flags)
+        obj.reserved1 = reserved1
+        obj.reserved2 = reserved2
+        return obj, offset
 
-        offset = len(fse)
+    def set_flag(self, bit_index: int, value: bool):
+        if not 0 <= bit_index < 64:
+            raise ValueError("bit_index must be in 0..63")
+        byte_index = bit_index // 8
+        bit_in_byte = bit_index % 8
+        if value:
+            self.binary_flags[byte_index] |= 1 << bit_in_byte
+        else:
+            self.binary_flags[byte_index] &= ~(1 << bit_in_byte)
 
-        if offset + 8 > len(data):
-            raise BSDMPError("Frame too short to contain header")
-
-        frame_num = struct.unpack("<I", data[offset : offset + 4])[0]
-        offset += 4
-        full_len = struct.unpack("<I", data[offset : offset + 4])[0]
-        offset += 4
-
-        if offset + full_len - len(fee) > len(data):
-            raise BSDMPError("Frame full_len exceeds available data")
-
-        field_end = offset + full_len - len(fee)
-        fields = []
-
-        while offset + 2 <= field_end:
-            flen = struct.unpack("<H", data[offset : offset + 2])[0]
-            offset += 2
-
-            if offset + flen > field_end:
-                raise BSDMPError("Field length exceeds frame boundary")
-
-            field = data[offset : offset + flen]
-            offset += flen
-            fields.append(field)
-
-        if data[offset : offset + len(fee)] != fee:
-            raise BSDMPError("Frame end marker not found")
-
-        offset += len(fee)
-        return cls(frame_num, fields), offset
+    def get_flag(self, bit_index: int) -> bool:
+        if not 0 <= bit_index < 64:
+            raise ValueError("bit_index must be in 0..63")
+        byte_index = bit_index // 8
+        bit_in_byte = bit_index % 8
+        return (self.binary_flags[byte_index] >> bit_in_byte) & 1 == 1
 
 
-class BSDMPClient:
+class BSDMPMessage:
+    MAGIC = b"BSDM"
+
+    def __init__(self, header: BSDMPHeader, data_block: BSDMPDataBlock, crc: int):
+        self.header = header
+        self.data_block = data_block
+        self.crc = crc
+
+    def to_bytes(self) -> bytes:
+        raw_data = self.data_block.to_bytes()
+        compressed_data = BSDMPCompressor.compress(self.header.compression, raw_data)
+
+        self.header.data_block_size = len(compressed_data)
+        header_bytes = self.header.to_bytes()
+
+        # Используем драйвер CRC
+        self.crc = BSDMPCRCDriver.calculate(compressed_data)
+
+        return self.MAGIC + header_bytes + compressed_data + struct.pack("<I", self.crc)
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "BSDMPMessage":
+        if data[:4] != cls.MAGIC:
+            raise ValueError("Invalid BSDMP magic")
+
+        header, offset = BSDMPHeader.from_bytes(data, 4)
+
+        if offset + header.data_block_size + 4 > len(data):
+            raise ValueError("Data too short for declared data_block_size and CRC")
+
+        compressed_data = data[offset : offset + header.data_block_size]
+        offset += header.data_block_size
+
+        (crc_val,) = struct.unpack_from("<I", data, offset)
+
+        # декомпрессия
+        raw_data = BSDMPCompressor.decompress(header.compression, compressed_data)
+
+        calc_crc = zlib.crc32(compressed_data) & 0xFFFFFFFF
+        if calc_crc != crc_val:
+            raise ValueError("CRC mismatch")
+
+        data_block, _ = BSDMPDataBlock.from_bytes(raw_data, 0)
+        return cls(header, data_block, crc_val)
+
+
+class BSDMPPack:
     def __init__(
         self,
-        version=1,
-        compression=CompressionType.RAW,
-        fse=b"FRAME>",
-        fee=b"<FRAME",
+        compression: int = 0,
+        extension: int = 0,
+        binary_flags: Optional[bytes] = None,
+        fse: bytes = b"\xfa\xfb\xfc",
+        fee: bytes = b"\xfd\xfe\xff",
     ):
-        self.version = version
-        self.compression = compression
-        self.fse = fse
-        self.fee = fee
-        self.frames = []
-        self.title = []
-        self.counter = 1
+        self._title_entries: List[BSDMPTitleEntry] = []
+        self._frames_data: List[List[Any]] = []
+        self._compression = compression
+        self._extension = extension
+        if binary_flags is not None:
+            if len(binary_flags) != 8:
+                raise ValueError("binary_flags должен быть длиной 8 байт")
+            self._binary_flags = bytearray(binary_flags)
+        else:
+            self._binary_flags = bytearray(b"\x00" * 8)
+        self._fse = fse
+        self._fee = fee
 
-    def format(self, fields: list[str]):
-        self.title = [(name, FieldType.STRING) for name in fields]
+    def title(self, fields: List[Tuple[str, int, int]]):
+        names = [name for name, _, _ in fields]
+        if len(names) != len(set(names)):
+            raise ValueError("Field names must be unique")
+        self._title_entries = [
+            BSDMPTitleEntry(name, type_code, type_len)
+            for name, type_code, type_len in fields
+        ]
 
-    def format_with_types(self, field_definitions: list[tuple[str, int]]):
-        """Задает формат полей с указанием типов для каждого поля.
+    def frame(self, values: Union[List[Any], Dict[str, Optional[Any]]]):
+        if isinstance(values, dict):
+            ordered_values = []
+            for te in self._title_entries:
+                ordered_values.append(values.get(te.name, None))
+            values = ordered_values
+        else:
+            if len(values) != len(self._title_entries):
+                raise ValueError(
+                    "Количество значений не совпадает с количеством заголовков"
+                )
 
-        Args:
-            field_definitions: Список кортежей (имя_поля, тип_поля)
+        self._frames_data.append(values)
 
-        Пример:
-            format_with_types([
-                ("name", FieldType.STRING),
-                ("age", FieldType.INT),
-                ("is_active", FieldType.BOOL)
-            ])
-        """
-        valid_types = {
-            FieldType.STRING,
-            FieldType.INT,
-            FieldType.FLOAT,
-            FieldType.BOOL,
-            FieldType.JSON,
-        }
+    def pack(self) -> bytes:
+        frames = []
 
-        for _, field_type in field_definitions:
-            if field_type not in valid_types:
-                raise ValueError(f"Недопустимый тип поля: {field_type}")
+        for i, frame_values in enumerate(self._frames_data, start=1):
+            fields = []
+            for idx, value in enumerate(frame_values):
+                if value is None:
+                    continue
+                title_entry = self._title_entries[idx]
+                data_bytes = self._encode_value(value, title_entry.type_code)
+                fields.append(
+                    BSDMPField(
+                        title_index=idx,
+                        type_len=title_entry.type_len,
+                        data=data_bytes,
+                    )
+                )
+            frame = BSDMPFrame(self._fse, i, fields, self._fee)
+            frames.append(frame)
 
-        self.title = field_definitions.copy()
-
-    def frame(self, values: list):
-        encoded_fields = [FieldType.encode(v, FieldType.detect(v)) for v in values]
-        self.frames.append(BSDMPFrame(self.counter, encoded_fields))
-        self.counter += 1
-
-    def encode(self) -> bytes:
-        block = BSDMPDataBlock(
-            frame_count=len(self.frames),
-            fse=self.fse,
-            fee=self.fee,
-            title=self.title,
-            frames=self.frames,
-        ).encode()
-        header = BSDMPHeader(
-            version=self.version,
-            compression=self.compression,
-            data_block=block,
+        data_block = BSDMPDataBlock(
+            frame_count=len(frames),
+            fse=self._fse,
+            fee=self._fee,
+            title_entries=self._title_entries,
+            frames=frames,
         )
-        return header.encode()
+
+        raw_data = data_block.to_bytes()
+
+        header = BSDMPHeader(
+            version=3,
+            extension=self._extension,
+            compression=self._compression,
+            data_block_size=len(raw_data),
+            binary_flags=self._binary_flags,
+        )
+
+        crc_val = BSDMPCRCDriver.calculate(raw_data)
+        message = BSDMPMessage(header, data_block, crc_val)
+        return message.to_bytes()
+
+    def _encode_value(self, value, type_code) -> bytes:
+        if type_code == BSDMPFieldType.STRING:
+            if isinstance(value, str):
+                return value.encode("utf-8")
+            elif isinstance(value, bytes):
+                return value
+            else:
+                return str(value).encode("utf-8")
+        elif type_code == BSDMPFieldType.INT:
+            return struct.pack("<q", int(value))
+        elif type_code == BSDMPFieldType.FLOAT:
+            return struct.pack("<d", value)
+        elif type_code == BSDMPFieldType.BOOL:
+            return b"\x01" if value else b"\x00"
+        elif type_code == BSDMPFieldType.JSON:
+            return json.dumps(value).encode("utf-8")
+        elif type_code == BSDMPFieldType.BINARY:
+            return value
+        else:
+            raise NotImplementedError(
+                f"Encoding for type_code {type_code} not implemented"
+            )
+
+    def set_flag(self, bit_index: int, value: bool):
+        if not 0 <= bit_index < 64:
+            raise ValueError("bit_index must be in 0..63")
+        byte_index = bit_index // 8
+        bit_in_byte = bit_index % 8
+        if value:
+            self._binary_flags[byte_index] |= 1 << bit_in_byte
+        else:
+            self._binary_flags[byte_index] &= ~(1 << bit_in_byte)
 
 
-class BSDMPServer:
-    def __init__(self):
-        self.title = []
-        self.frames = []
+class BSDMPUnpack:
+    def __init__(self, data: bytes, strict: bool = False):
+        self._message = BSDMPMessage.from_bytes(data)
+        self.title_entries = self._message.data_block.title_entries
+        self.strict = strict
+        self.frames = self._parse_frames()
+        self._binary_flags = self._message.header.binary_flags
 
-    def decode(self, raw: bytes):
-        header, _ = BSDMPHeader.decode(raw)
-        block = BSDMPDataBlock.decode(header._raw_data_block)
-        self.title = block.title
-        self.frames = []
+    def get_flag(self, bit_index: int) -> bool:
+        if not 0 <= bit_index < 64:
+            raise ValueError("bit_index must be in 0..63")
+        byte_index = bit_index // 8
+        bit_in_byte = bit_index % 8
+        return (self._binary_flags[byte_index] >> bit_in_byte) & 1 == 1
 
-        for frame in block.frames:
-            mapped = {}
-            for i, field in enumerate(frame.fields):
-                if i < len(self.title):
-                    name, ftype = self.title[i]
-                    mapped[name] = FieldType.decode(field, ftype)
-                else:
-                    mapped[str(i)] = field
-            self.frames.append(mapped)
+    def _parse_frames(self):
+        parsed_frames = []
+        for frame in self._message.data_block.frames:
+            if self.strict:
+                frame_dict: dict[str, Any] = {
+                    te.name: None for te in self.title_entries
+                }
+                for field in frame.fields:
+                    title_entry = self.title_entries[field.title_index]
+                    val = self._decode_value(field.data, title_entry.type_code)
+                    frame_dict[title_entry.name] = val
+            else:
+                frame_dict = {}
+                for field in frame.fields:
+                    title_entry = self.title_entries[field.title_index]
+                    val = self._decode_value(field.data, title_entry.type_code)
+                    frame_dict[title_entry.name] = val
+            parsed_frames.append(frame_dict)
+        return parsed_frames
+
+    def _decode_value(self, data: bytes, type_code):
+        if type_code == BSDMPFieldType.STRING:
+            return data.decode("utf-8")
+        elif type_code == BSDMPFieldType.INT:
+            return struct.unpack("<q", data)[0]
+        elif type_code == BSDMPFieldType.FLOAT:
+            return struct.unpack("<d", data)[0]
+        elif type_code == BSDMPFieldType.BOOL:
+            return bool(data[0])
+        elif type_code == BSDMPFieldType.JSON:
+            return json.loads(data.decode("utf-8"))
+        elif type_code == BSDMPFieldType.BINARY:
+            return data
+        else:
+            raise NotImplementedError(
+                f"Decoding for type_code {type_code} not implemented"
+            )
+
+
+# Метод 0 — без сжатия
+BSDMPCompressor.register(0, lambda x: x, lambda x: x)
+# Метод 1 — zlib
+BSDMPCompressor.register(1, zlib.compress, zlib.decompress)
+# Метод 2 — gzip
+BSDMPCompressor.register(
+    2, lambda x: gzip.compress(x, compresslevel=9), lambda x: gzip.decompress(x)
+)
+# Метод 3 — bzip2
+BSDMPCompressor.register(
+    3, lambda x: bz2.compress(x, compresslevel=9), lambda x: bz2.decompress(x)
+)
+# Метод 4 — lzma
+BSDMPCompressor.register(
+    4, lambda x: lzma.compress(x, preset=9), lambda x: lzma.decompress(x)
+)
