@@ -1,5 +1,7 @@
 ## BSDMP (Binary Self-Describing Messaging Protocol)
 
+i18n : [English](README.en.md) | [Русский](README.md)
+
 BSDMP (Binary Self-Describing Messaging Protocol) — бинарный протокол для эффективной передачи структурированных данных между клиентом и сервером. Протокол использует самоописываемую структуру, позволяющую получателю интерпретировать данные без предварительного знания их формата.
 
 ---
