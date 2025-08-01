@@ -201,9 +201,9 @@ struct BSDMPField {
 - `field_len` extension via `type_len` (1/2/4/8 bytes)
 - Enhanced `title_block` header: `name_len`, `name`, `type_code`, `type_len`
 - Support for binary data, strings, and intX types
+- CRC32 in header
 
 🔜 In Progress:
-- Optional CRC32 support in header
 - Extended data types: `json`, `float`, `datetime`
 - Parser-level structure validation: unique names, type correctness
 - SDK/Parser expansion:
@@ -231,13 +231,14 @@ struct BSDMPField {
 | 14 | `type_len` field                                 | ✅ Implemented | v3      | Enables 1/2/4/8 byte `field_len`           |
 | 15 | Packet-wide CRC                                  | ⏸ On Hold     | —       | Currently optional                         |
 | 16 | Header extensibility (flags, future fields)      | ✅ Implemented | v3      | Reserved space available                   |
-| 17 | Field name uniqueness validation                | 🔜 Planned     | v4?     | May be implemented in generator/parser     |
-| 18 | Nested structure support                        | ⏸ On Hold     | —       | Conflicts with linear simplicity           |
+| 17 | Field name uniqueness validation                 | 🔜 Planned     | v4?     | May be implemented in generator/parser     |
+| 18 | Nested structure support                         | ⏸ On Hold     | —       | Conflicts with linear simplicity           |
 | 19 | SDK/Parsers: Python                              | ✅ Partial     | v3      | Basic parser available                     |
-| 20 | SDK/Parsers: Go                                  | ✅ Partial     | v3      | Examples available                         |
-| 21 | SDK/Parsers: PHP                                 | ✅ Partial     | v3      | Implemented in current project             |
-| 22 | SDK/Parsers: JS/TS (Node, Deno, Bun)            | 🔜 Planned     | v4      | Libraries in development                   |
-| 23 | SDK/Parsers: C/C++/Rust/C#                       | 🔜 Planned     | v4+     | Awaiting demand confirmation               |
+| 20 | SDK/Parsers: Go                                  | ✅ Partial     | v3      | Basic parser available                     |
+| 21 | SDK/Parsers: PHP                                 | ✅ Partial     | v3      | Basic parser available                     |
+| 22 | SDK/Parsers: JS (Node, Deno, Bun)                | ✅ Partial     | v3      | Basic parser available                     |
+| 23 | SDK/Parsers: TS (Node, Deno, Bun)                | 🔜 Planned     | v3      | Libraries in development                   |
+| 24 | SDK/Parsers: C/C++/Rust/C#                       | 🔜 Planned     | v3      | Awaiting demand confirmation               |
 
 ---
 
